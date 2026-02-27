@@ -2,38 +2,51 @@ name: Convert Images to WebP
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
+    paths:
+      - '**.png'
+      - '**.jpg'
+      - '**.jpeg'
     branches:
       - main
 
 jobs:
-  convert:
+  convert-images:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install WebP
-        run: sudo apt-get install -y webp
+      - name: Install cwebp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y webp
 
       - name: Convert images to WebP
+        id: convert
         run: |
-          mkdir -p converted
-          for img in $(find . -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) ! -path "*/converted/*" ! -path "*/.git/*"); do
-            filename=$(basename "$img")
-            name="${filename%.*}"
-            cwebp "$img" -o "converted/${name}.webp"
-            echo "Converted $img to converted/${name}.webp"
+          converted_count=0
+          # Find all image files in root directory
+          for file in *.{png,jpg,jpeg}; do
+            if [ -f "$file" ] && [ ! -f "${file%.*}.webp" ]; then
+              output="${file%.*}.webp"
+              cwebp "$file" -o "$output" -q 80
+              echo "✅ Converted: $file → $output"
+              ((converted_count++))
+            fi
           done
+          echo "count=$converted_count" >> $GITHUB_OUTPUT
 
-      - name: Commit converted images
+      - name: Commit and push WebP files
+        if: steps.convert.outputs.count > 0
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          if [ -n "$(git status --porcelain converted/)" ]; then
-            git add converted/*.webp
-            git commit -m "🖼️ Automatically converted images to WebP format"
-            git push
-          fi
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add *.webp
+          git commit -m "🖼️ Auto-convert: Added WebP versions of images"
+          git push origin main
